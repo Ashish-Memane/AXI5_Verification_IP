@@ -104,50 +104,6 @@ class axi5_mon #(
     end
   endtask
 
-  // Thread: B Response
-  virtual task monitor_write_response();
-    bit [IW-1:0] bid;
-    axi5_xtn #(AW, DW, IW) tx;
-    forever begin
-      @(vif.monitor_cb);
-      if (vif.monitor_cb.BVALID && vif.monitor_cb.BREADY) begin
-        bid = vif.monitor_cb.BID;
-        if (waiting_for_b_resp_q.exists(bid) && waiting_for_b_resp_q[bid].size() > 0) begin
-          tx = waiting_for_b_resp_q[bid].pop_front();
-          tx.bresp = vif.monitor_cb.BRESP;
-          item_collected_port.write(tx);
-        end
-      end
-    end
-  endtask
-
-  // Thread C: Merge Independent AW and W channels as they complete
-  virtual task assemble_write_transactions();
-    axi5_xtn #(AW, DW, IW) aw_tx;
-    axi5_xtn #(AW, DW, IW) w_tx;
-
-    forever begin
-      // Block until we have at least one valid address and one completed payload burst
-      wait(pending_aw_q.size() > 0 && completed_w_payload_q.size() > 0);
-
-      aw_tx = pending_aw_q.pop_front();
-      w_tx  = completed_w_payload_q.pop_front();
-
-      // Check for burst length alignment consistency
-      if (aw_tx.len != w_tx.len) begin
-        `uvm_error("AXI5_MON_ERR", $sformatf("AWLEN (%0d) does not match actual monitored WDATA beats (%0d)!", aw_tx.len, w_tx.len));
-      end
-
-      // Merge monitored payload fields
-      aw_tx.data   = w_tx.data;
-      aw_tx.strb   = w_tx.strb;
-      aw_tx.poison = w_tx.poison;
-
-      // Push into ID-indexed response queue, waiting for the B response channel
-      waiting_for_b_resp_q[aw_tx.id].push_back(aw_tx);
-    end
-  endtask : assemble_write_transactions
-
   // Thread D: Monitor Write Responses (B)
   virtual task monitor_write_response();
     bit [IW-1:0] resp_id;
